@@ -6,47 +6,52 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/furo@2021.09.08/css/furo.css">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <!-- EasyMDE CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+    <style>
+        .editor-toolbar button {
+            color: #555 !important;
+        }
+        .CodeMirror {
+            height: 500px !important;
+            border: 1px solid #ddd;
+        }
+        .editor-preview {
+            background-color: #fff;
+        }
+        .editor-statusbar {
+            padding: 8px;
+            color: #777;
+        }
+        .upload-progress {
+            display: none;
+            margin-top: 10px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <h1>Edit {{ filename }}</h1>
-        <div class="btn-toolbar mb-3" role="toolbar">
-            <div class="btn-group mr-2" role="group">
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('# Heading 1\n\n')">
-                    <i class="fas fa-heading"></i> H1
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('## Heading 2\n\n')">
-                    <i class="fas fa-heading"></i> H2
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('### Heading 3\n\n')">
-                    <i class="fas fa-heading"></i> H3
-                </button>
-            </div>
-            <div class="btn-group mr-2" role="group">
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('- List item 1\n- List item 2\n\n')">
-                    <i class="fas fa-list-ul"></i> List
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('[Link text](https://example.com)\n\n')">
-                    <i class="fas fa-link"></i> Link
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('![Alt text](https://example.com/image.jpg)\n\n')">
-                    <i class="fas fa-image"></i> Image
-                </button>
-                <button type="button" class="btn btn-secondary" onclick="insertMarkdown('```LanguageHere\nCodeHere\n```\n\n')">
-                    <i class="fas fa-code"></i> Code
-                </button>
-            </div>
-        </div>
+        
         <form action="{{ url_for('edit', filename=filename) }}" method="post">
-            <textarea id="content" name="content" rows="20" cols="80">{{ content }}</textarea>
+            <textarea id="content" name="content">{{ content }}</textarea>
             <br>
+            <div class="upload-progress">
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted">Uploading image...</small>
+            </div>
             <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#deleteModal" style="margin-left: 10px;">
+                Delete
+            </button>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary" style="margin-left: 10px;">Back to file list</a>
         </form>
-        <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#deleteModal" style="margin-top: 10px;">
-            Delete
-        </button>
-        <a href="{{ url_for('index') }}" class="btn btn-secondary" style="margin-top: 10px;">Back to file list</a>
     </div>
+
+    <!-- File upload form (hidden) -->
+    <input type="file" id="image-upload" accept="image/*" style="display: none">
 
     <!-- Delete Confirmation Modal -->
     <div class="modal fade" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
@@ -71,22 +76,92 @@
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/furo@2021.09.08/js/furo.js"></script>
+    <!-- EasyMDE JS -->
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
     <script>
-        function insertMarkdown(markdown) {
-            var textarea = document.getElementById('content');
-            var startPos = textarea.selectionStart;
-            var endPos = textarea.selectionEnd;
-            var beforeValue = textarea.value.substring(0, startPos);
-            var afterValue = textarea.value.substring(endPos, textarea.value.length);
-            textarea.value = beforeValue + markdown + afterValue;
-            textarea.selectionStart = startPos + markdown.length;
-            textarea.selectionEnd = startPos + markdown.length;
-            textarea.focus();
-        }
+        const easyMDE = new EasyMDE({
+            element: document.getElementById('content'),
+            spellChecker: false,
+            autosave: {
+                enabled: true,
+                unique_id: "editor_{{ filename|replace('/', '_') }}",
+                delay: 1000,
+            },
+            renderingConfig: {
+                codeSyntaxHighlighting: true,
+            },
+            toolbar: [
+                'bold', 'italic', 'heading', '|',
+                'quote', 'unordered-list', 'ordered-list', '|',
+                {
+                    name: "image",
+                    action: function customFunction(editor){
+                        document.getElementById('image-upload').click();
+                    },
+                    className: "fa fa-image",
+                    title: "Upload Image",
+                },
+                'link', 'table', 'code', '|',
+                'preview', 'side-by-side', 'fullscreen', '|',
+                'guide'
+            ],
+            status: ['autosave', 'lines', 'words', 'cursor']
+        });
+
+        // Handle image upload
+        document.getElementById('image-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Show progress bar
+            const progressBar = document.querySelector('.upload-progress');
+            progressBar.style.display = 'block';
+            
+            // Create FormData
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('document_path', '{{ filename }}');
+            
+            // Send file to server
+            $.ajax({
+                url: '{{ url_for("upload_image") }}',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                xhr: function() {
+                    const xhr = new window.XMLHttpRequest();
+                    xhr.upload.addEventListener('progress', function(evt) {
+                        if (evt.lengthComputable) {
+                            const percentComplete = evt.loaded / evt.total * 100;
+                            $('.progress-bar').css('width', percentComplete + '%');
+                        }
+                    }, false);
+                    return xhr;
+                },
+                success: function(response) {
+                    // Insert the image markdown at cursor position
+                    const cm = easyMDE.codemirror;
+                    const imagePath = response.url;
+                    const imageMarkdown = `![${file.name}](${imagePath})`;
+                    cm.replaceSelection(imageMarkdown);
+                    
+                    // Hide progress bar
+                    progressBar.style.display = 'none';
+                    $('.progress-bar').css('width', '0%');
+                    
+                    // Reset file input
+                    document.getElementById('image-upload').value = '';
+                },
+                error: function(error) {
+                    alert('Error uploading image: ' + error.responseText);
+                    progressBar.style.display = 'none';
+                }
+            });
+        });
     </script>
 </body>
 </html>

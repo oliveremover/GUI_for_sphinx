@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import json
 from itertools import zip_longest
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -720,6 +721,62 @@ def build():
 @app.route('/preview')
 def preview():
     return send_from_directory(BUILD_PATH, "index.html")
+
+@app.route('/upload_image', methods=['POST'])
+def upload_image():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image in request'}), 400
+    
+    file = request.files['image']
+    document_path = request.form.get('document_path', '')
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Determine the section (content or gettingstarted) based on the document path
+    if document_path.startswith('content/'):
+        section = 'content'
+        base_path = CONTENT_PATH
+    else:
+        section = 'gettingstarted'
+        base_path = STARTED_PATH
+    
+    # Extract the folder from document path
+    document_path = document_path.strip('/')
+    document_dir = os.path.dirname(document_path)
+    
+    # Remove section prefix from document_dir if present
+    if document_dir.startswith(section + '/'):
+        document_dir = document_dir[len(section) + 1:]
+    
+    # Define the _static folder path where image will be saved
+    if document_dir:
+        # Images go to the _static folder in the same directory as the document
+        static_folder = os.path.join(base_path, document_dir, '_static')
+    else:
+        # If document is at root level, use section's _static folder
+        static_folder = os.path.join(base_path, '_static')
+    
+    # Create _static folder if it doesn't exist
+    os.makedirs(static_folder, exist_ok=True)
+    
+    # Secure the filename and save the file
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(static_folder, filename)
+    file.save(file_path)
+    
+    # Calculate the relative URL for the image
+    if document_dir:
+        # Relative path from document to its _static folder
+        image_url = f"_static/{filename}"
+    else:
+        # Document is at section root
+        image_url = f"_static/{filename}"
+    
+    return jsonify({
+        'url': image_url,
+        'filename': filename
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)

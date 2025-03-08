@@ -21,7 +21,7 @@ $(document).ready(function() {
             var newOrder = $('#jstree-content-' + (index + 1)).jstree(true).get_json('#', {flat: true});
             $.ajax({
                 type: 'POST',
-                url: '/save_order',
+                url: '/save_order?section=content',  // Add section parameter
                 contentType: 'application/json',
                 data: JSON.stringify(newOrder),
                 success: function(response) {
@@ -56,7 +56,7 @@ $(document).ready(function() {
             var newOrder = $('#jstree-started-' + (index + 1)).jstree(true).get_json('#', {flat: true});
             $.ajax({
                 type: 'POST',
-                url: '/save_order',
+                url: '/save_order?section=gettingstarted',  // Add section parameter
                 contentType: 'application/json',
                 data: JSON.stringify(newOrder),
                 success: function(response) {
@@ -88,5 +88,21 @@ $(document).ready(function() {
 
     startedTreeData.forEach(function(tree) {
         populateFolderDropdown(tree);
+    });
+
+    // When "New Folder" button is clicked
+    $('.new-folder-btn').on('click', function() {
+        // Get the section from the data attribute or button context
+        var section = $(this).data('section');
+        var parentFolder = $(this).data('folder') || '';
+        
+        // Set values in the modal
+        $('#parent-folder').val(parentFolder);
+        
+        // Set the correct section in the dropdown
+        $('#folder-section').val(section);
+        
+        // Show the modal
+        $('#new-folder-modal').show();
     });
 });
