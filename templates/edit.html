@@ -27,6 +27,20 @@
             display: none;
             margin-top: 10px;
         }
+        #document-tree {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .document-item {
+            cursor: pointer;
+            padding: 5px;
+        }
+        .document-item:hover {
+            background-color: #f5f5f5;
+        }
+        #image-description {
+            margin-top: 15px;
+        }
     </style>
 </head>
 <body>
@@ -50,8 +64,45 @@
         </form>
     </div>
 
-    <!-- File upload form (hidden) -->
-    <input type="file" id="image-upload" accept="image/*" style="display: none">
+    <!-- Image Upload Modal -->
+    <div class="modal fade" id="imageUploadModal" tabindex="-1" role="dialog" aria-labelledby="imageUploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imageUploadModalLabel">Upload Image</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="image-file">Select Image</label>
+                        <input type="file" id="image-upload" class="form-control-file" accept="image/*">
+                    </div>
+                    <div class="form-group" id="image-description-group" style="display: none;">
+                        <label for="image-description">Image Description (Alt Text)</label>
+                        <input type="text" id="image-description" class="form-control" placeholder="Enter description for the image (alt text)">
+                        <small class="form-text text-muted">This text will be used as the image alt text for accessibility.</small>
+                    </div>
+                    <div class="form-group" id="image-caption-group" style="display: none;">
+                        <label for="image-caption">Image Caption</label>
+                        <input type="text" id="image-caption" class="form-control" placeholder="Enter caption to display under the image">
+                        <small class="form-text text-muted">This text will appear as a caption under the image.</small>
+                    </div>
+                    <div class="upload-progress">
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <small class="text-muted">Uploading image...</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="upload-image-btn" disabled>Upload & Insert</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Delete Confirmation Modal -->
     <div class="modal fade" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
@@ -71,6 +122,43 @@
                     <form action="{{ url_for('delete', filename=filename) }}" method="post" style="display: inline;">
                         <button type="submit" class="btn btn-danger">Delete</button>
                     </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Internal Link Modal -->
+    <div class="modal fade" id="internalLinkModal" tabindex="-1" role="dialog" aria-labelledby="internalLinkModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="internalLinkModalLabel">Select Document to Link</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <input type="text" id="document-search" class="form-control mb-3" placeholder="Search documents...">
+                        <div class="row">
+                            <div class="col-6">
+                                <h6>Content Section</h6>
+                                <div id="content-tree" class="document-tree border rounded p-2"></div>
+                            </div>
+                            <div class="col-6">
+                                <h6>Getting Started Section</h6>
+                                <div id="gettingstarted-tree" class="document-tree border rounded p-2"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group mt-3">
+                        <label for="link-text">Link Text</label>
+                        <input type="text" id="link-text" class="form-control" placeholder="Text to display for the link">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="insert-link-btn" disabled>Insert Link</button>
                 </div>
             </div>
         </div>
@@ -99,21 +187,55 @@
                 {
                     name: "image",
                     action: function customFunction(editor){
-                        document.getElementById('image-upload').click();
+                        // Show the modal instead of directly clicking the file input
+                        $('#imageUploadModal').modal('show');
                     },
                     className: "fa fa-image",
                     title: "Upload Image",
                 },
-                'link', 'table', 'code', '|',
+                {
+                    name: "internal-link",
+                    action: function(editor) {
+                        loadDocumentTree();
+                        $('#internalLinkModal').modal('show');
+                    },
+                    className: "fa fa-file",
+                    title: "Internal Document Link",
+                },
+                'table', 'code', '|',
                 'preview', 'side-by-side', 'fullscreen', '|',
                 'guide'
             ],
             status: ['autosave', 'lines', 'words', 'cursor']
         });
 
-        // Handle image upload
+        // When file is selected, show the description and caption fields
         document.getElementById('image-upload').addEventListener('change', function(e) {
             const file = e.target.files[0];
+            if (file) {
+                document.getElementById('image-description-group').style.display = 'block';
+                document.getElementById('image-caption-group').style.display = 'block';
+                document.getElementById('upload-image-btn').disabled = false;
+                
+                // Pre-fill with filename as default for description
+                const description = document.getElementById('image-description');
+                if (!description.value) {
+                    const filename = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+                    description.value = filename.replace(/[-_]/g, ' '); // Replace dashes/underscores with spaces
+                }
+            } else {
+                document.getElementById('image-description-group').style.display = 'none';
+                document.getElementById('image-caption-group').style.display = 'none';
+                document.getElementById('upload-image-btn').disabled = true;
+            }
+        });
+
+        // Upload button handler
+        document.getElementById('upload-image-btn').addEventListener('click', function() {
+            const file = document.getElementById('image-upload').files[0];
+            const description = document.getElementById('image-description').value || file.name;
+            const caption = document.getElementById('image-caption').value || '';
+            
             if (!file) return;
             
             // Show progress bar
@@ -143,24 +265,179 @@
                     return xhr;
                 },
                 success: function(response) {
-                    // Insert the image markdown at cursor position
+                    // Insert the image markdown at cursor position with custom description
                     const cm = easyMDE.codemirror;
                     const imagePath = response.url;
-                    const imageMarkdown = `![${file.name}](${imagePath})`;
+                    
+                    // Detect if the current file is Markdown or RST
+                    const currentFile = '{{ filename }}';
+                    const isMarkdown = currentFile.endsWith('.md');
+                    
+                    let imageMarkdown;
+                    
+                    if (isMarkdown) {
+                        // For Markdown, use HTML for better control of caption styling
+                        if (caption) {
+                            imageMarkdown = `<div style="text-align: center;">\n\n![${description}](${imagePath})\n\n<p style="margin-top: -10px;">${caption}</p>\n\n</div>`;
+                        } else {
+                            imageMarkdown = `![${description}](${imagePath})`;
+                        }
+                    } else {
+                        // For RST, use figure directive with centered alignment and custom spacing
+                        if (caption) {
+                            imageMarkdown = `.. figure:: ${imagePath}\n   :align: center\n   :alt: ${description}\n\n   ${caption}`;
+                        } else {
+                            imageMarkdown = `.. image:: ${imagePath}\n   :align: center\n   :alt: ${description}`;
+                        }
+                    }
+                    
                     cm.replaceSelection(imageMarkdown);
                     
-                    // Hide progress bar
+                    // Hide progress bar and reset
                     progressBar.style.display = 'none';
                     $('.progress-bar').css('width', '0%');
-                    
-                    // Reset file input
                     document.getElementById('image-upload').value = '';
+                    document.getElementById('image-description').value = '';
+                    document.getElementById('image-caption').value = '';
+                    document.getElementById('image-description-group').style.display = 'none';
+                    document.getElementById('image-caption-group').style.display = 'none';
+                    
+                    // Close modal
+                    $('#imageUploadModal').modal('hide');
                 },
                 error: function(error) {
                     alert('Error uploading image: ' + error.responseText);
                     progressBar.style.display = 'none';
                 }
             });
+        });
+
+        // Variables for internal linking
+        let selectedDocument = null;
+        const documentsCache = {
+            content: [],
+            gettingstarted: []
+        };
+
+        // Load document tree for linking
+        function loadDocumentTree() {
+            $.ajax({
+                url: '{{ url_for("get_documents") }}',
+                type: 'GET',
+                success: function(data) {
+                    documentsCache.content = data.content || [];
+                    documentsCache.gettingstarted = data.gettingstarted || [];
+                    
+                    // Populate trees
+                    renderDocumentTree('content-tree', documentsCache.content);
+                    renderDocumentTree('gettingstarted-tree', documentsCache.gettingstarted);
+                },
+                error: function(error) {
+                    console.error('Error loading documents:', error);
+                    alert('Failed to load document list.');
+                }
+            });
+        }
+
+        function renderDocumentTree(containerId, documents) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            if (documents.length === 0) {
+                container.innerHTML = '<div class="text-muted p-2">No documents found</div>';
+                return;
+            }
+
+            documents.forEach(doc => {
+                const item = document.createElement('div');
+                item.className = 'document-item';
+                item.textContent = doc.title || doc.path;
+                item.dataset.path = doc.path;
+                item.addEventListener('click', function() {
+                    // Deselect all items
+                    document.querySelectorAll('.document-item').forEach(el => {
+                        el.classList.remove('bg-primary', 'text-white');
+                    });
+                    
+                    // Select this item
+                    this.classList.add('bg-primary', 'text-white');
+                    selectedDocument = doc;
+                    
+                    // Enable insert button
+                    document.getElementById('insert-link-btn').disabled = false;
+                    
+                    // Set link text if empty
+                    const linkText = document.getElementById('link-text');
+                    if (!linkText.value) {
+                        linkText.value = doc.title || doc.path.split('/').pop().replace('.rst', '');
+                    }
+                });
+                container.appendChild(item);
+            });
+        }
+
+        // Filter documents based on search
+        document.getElementById('document-search').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            
+            // Filter content documents
+            const filteredContent = documentsCache.content.filter(doc => 
+                (doc.title && doc.title.toLowerCase().includes(query)) || 
+                (doc.path && doc.path.toLowerCase().includes(query))
+            );
+            
+            // Filter getting started documents
+            const filteredGettingStarted = documentsCache.gettingstarted.filter(doc => 
+                (doc.title && doc.title.toLowerCase().includes(query)) || 
+                (doc.path && doc.path.toLowerCase().includes(query))
+            );
+            
+            // Re-render trees
+            renderDocumentTree('content-tree', filteredContent);
+            renderDocumentTree('gettingstarted-tree', filteredGettingStarted);
+        });
+
+        // Handle insert link button
+        document.getElementById('insert-link-btn').addEventListener('click', function() {
+            if (!selectedDocument) return;
+            
+            const linkText = document.getElementById('link-text').value || selectedDocument.title || selectedDocument.path;
+            let linkPath = selectedDocument.path;
+            
+            // Clean up the path for Sphinx
+            // Remove file extension (.rst or .md)
+            linkPath = linkPath.replace(/\.(rst|md)$/, '');
+            
+            // If it ends with index, just use the directory path
+            linkPath = linkPath.replace(/\/index$/, '/');
+            
+            // Detect if the current file is Markdown or RST
+            const currentFile = '{{ filename }}';
+            const isMarkdown = currentFile.endsWith('.md');
+            
+            // Create link with correct syntax based on file type
+            let linkMarkdown;
+            
+            if (isMarkdown) {
+                // For Markdown files, provide two options:
+                // Option 1: Standard Markdown link that will work in rendered HTML
+                // Option 2: MyST syntax as a comment for reference
+                linkMarkdown = 
+                    `[${linkText}](/${linkPath}.html)\n\n` +
+                    `<!-- MyST format (if enabled in conf.py): {doc}\`${linkText} <${linkPath}>\` -->`;
+            } else {
+                // RST syntax for Sphinx cross-references
+                linkMarkdown = `:doc:\`${linkText} <${linkPath}>\``;
+            }
+            
+            // Insert at cursor position
+            easyMDE.codemirror.replaceSelection(linkMarkdown);
+            
+            // Close modal and reset
+            $('#internalLinkModal').modal('hide');
+            selectedDocument = null;
+            document.getElementById('link-text').value = '';
+            document.getElementById('insert-link-btn').disabled = true;
         });
     </script>
 </body>

@@ -144,8 +144,29 @@ def edit(filename):
 
     if request.method == 'POST':
         content = request.form['content']
+        
+        # Normalize line endings (convert Windows CRLF to Unix LF if present)
+        content = content.replace('\r\n', '\n')
+        
+        # For RST files, ensure proper spacing is maintained
+        if filepath.endswith('.rst'):
+            # Split into lines, process each line
+            lines = content.split('\n')
+            
+            # Remove any trailing empty lines while preserving structure
+            while lines and not lines[-1].strip():
+                lines.pop()
+                
+            # Join back with Unix line endings
+            content = '\n'.join(lines)
+            
+            # Ensure file ends with exactly one newline
+            if content and not content.endswith('\n'):
+                content += '\n'
+        
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
+        
         return redirect(url_for('index'))
 
     file_content = ""
@@ -184,11 +205,11 @@ def new():
 def add_to_toctree(relative_path, section):
     # Map the known sections explicitly
     if section == 'content':
-        class_directive = ':class: toctreeContent'
+        class_directive = ':class: toctreeContent no-bullets'
     elif section == 'gettingstarted':
-        class_directive = ':class: toctreeGettingstarted'
+        class_directive = ':class: toctreeGettingstarted no-bullets'
     else:
-        class_directive = ':class: toctreeContent'
+        class_directive = ':class: toctreeContent no-bullets'
     print("Looking for directive:", class_directive)
 
     # Fix the path - use case-insensitive comparison
@@ -213,15 +234,27 @@ def add_to_toctree(relative_path, section):
             j = i + 1
             found_section = None
             directive_end = j
+            found_class = False
             
             # Look for the class directive and capture last directive line
             while j < len(lines) and (lines[j].strip().startswith(':') or not lines[j].strip()):
-                # Use EXACT match for the class directive
-                if lines[j].strip() == class_directive:
-                    found_section = section
-                    print(f"Found matching directive at line {j}: '{lines[j].strip()}'")
+                # Check for class directive
+                if lines[j].strip().startswith(':class:'):
+                    found_class = True
+                    # If class exists but doesn't have no-bullets, add it
+                    if 'no-bullets' not in lines[j]:
+                        lines[j] = lines[j].rstrip() + ' no-bullets\n'
+                    if section == 'content' and 'toctreeContent' in lines[j]:
+                        found_section = section
+                    elif section == 'gettingstarted' and 'toctreeGettingstarted' in lines[j]:
+                        found_section = section
                 directive_end = j
                 j += 1
+            
+            # If section found but no class directive, add it
+            if found_section and not found_class:
+                lines.insert(directive_end + 1, f'   {class_directive}\n')
+                directive_end += 1
             
             if found_section:
                 # Found our target section, insert after the last directive
@@ -282,27 +315,7 @@ def add_to_parent_toctree(relative_path, section, parent_folder=''):
         # Primary path exists
         parent_path = primary_path
     
-    # Determine parent folder's path and its index.rst
-    if section == 'content':
-        parent_path = os.path.join(CONTENT_PATH, parent_folder)
-    else:
-        parent_path = os.path.join(STARTED_PATH, parent_folder)
-    
-    parent_index_path = os.path.join(parent_path, 'index.rst')
-    print(f"Looking for parent index at: {parent_index_path}")
-    
-    # If parent doesn't have an index.rst, fall back to root index.rst
-    if not os.path.exists(parent_index_path):
-        print(f"No index.rst found in parent folder {parent_folder}, using root index.rst")
-        return add_to_toctree(relative_path, section)
-    
     # Calculate relative path from parent folder to target file
-    if section == 'content':
-        base_path = CONTENT_PATH
-    else:
-        base_path = STARTED_PATH
-        
-    # Get the path relative to the parent folder
     file_full_path = os.path.join(SPHINX_DOCS_PATH, relative_path)
     rel_to_parent = os.path.relpath(file_full_path, parent_path).replace('\\', '/')
     
@@ -320,11 +333,38 @@ def add_to_parent_toctree(relative_path, section, parent_folder=''):
             break
     
     if toctree_index == -1:
-        # No toctree found, add one
-        lines.append('\n.. toctree::\n   :maxdepth: 2\n   :caption: Contents:\n\n')
+        # No toctree found, add one with no-bullets class
+        lines.append('\n.. toctree::\n   :maxdepth: 2\n   :caption: Contents:\n   :class: no-bullets\n\n')
         lines.append(f'   {rel_to_parent}\n')
     else:
-        # Find where to insert (after directives like :maxdepth:, :caption:, etc.)
+        # Check if the no-bullets class is already present
+        has_no_bullets = False
+        i = toctree_index + 1
+        while i < len(lines) and (lines[i].strip().startswith(':') or not lines[i].strip()):
+            if ':class:' in lines[i]:
+                if 'no-bullets' not in lines[i]:
+                    # Add no-bullets to existing class directive
+                    class_line = lines[i].rstrip()
+                    if class_line.endswith(' '):
+                        lines[i] = f"{class_line}no-bullets\n"
+                    else:
+                        lines[i] = f"{class_line} no-bullets\n"
+                has_no_bullets = True
+                break
+            i += 1
+        
+        # If no class directive found, add one with no-bullets
+        if not has_no_bullets:
+            # Find where to insert class directive (after other directives)
+            insert_index = toctree_index + 1
+            while insert_index < len(lines) and (
+                lines[insert_index].strip().startswith(':') or not lines[insert_index].strip()
+            ):
+                insert_index += 1
+                
+            lines.insert(insert_index, '   :class: no-bullets\n')
+            
+        # Find where to insert (after directives)
         insert_index = toctree_index + 1
         while insert_index < len(lines) and (
             lines[insert_index].strip().startswith(':') or not lines[insert_index].strip()
@@ -400,8 +440,8 @@ def new_folder():
 Section index page.
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
+   :class: no-bullets
 
 """)
             
@@ -425,6 +465,22 @@ Section index page.
     os.makedirs(static_folder, exist_ok=True)
     print(f"Created _static folder at: {static_folder}")
     
+    # Create custom.css file in the _static folder
+    custom_css_path = os.path.join(static_folder, "custom.css")
+    with open(custom_css_path, 'w', encoding='utf-8') as f:
+        f.write("""/* Remove bullets from toctree lists */
+.no-bullets ul {
+    list-style-type: none !important;
+}
+
+/* Preserve indentation */
+.no-bullets ul li {
+    margin-left: 1.5em;
+}
+
+""")
+    print(f"Created custom.css at: {custom_css_path}")
+    
     # Create index.rst file in the new folder
     index_path = os.path.join(folderpath, "index.rst")
     with open(index_path, 'w', encoding='utf-8') as f:
@@ -436,8 +492,8 @@ Section index page.
 This is the main page for {title}.
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
+   :class: no-bullets
 
 """)
     
@@ -776,6 +832,65 @@ def upload_image():
     return jsonify({
         'url': image_url,
         'filename': filename
+    })
+
+@app.route('/get_documents', methods=['GET'])
+def get_documents():
+    """Return a list of all available documents for internal linking"""
+    content_docs = []
+    gettingstarted_docs = []
+    
+    # Walk through content files
+    for root, dirs, files in os.walk(CONTENT_PATH):
+        for file in files:
+            if file.endswith('.rst') or file.endswith('.md'):
+                rel_path = os.path.relpath(os.path.join(root, file), SPHINX_DOCS_PATH)
+                rel_path = rel_path.replace('\\', '/')
+                
+                # Get document title if possible
+                title = None
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                        if first_line.startswith('# '):
+                            title = first_line[2:].strip()
+                        elif first_line and all(c == '=' for c in (f.readline().strip() or '')):
+                            title = first_line
+                except:
+                    pass
+                
+                content_docs.append({
+                    'path': rel_path,
+                    'title': title or os.path.splitext(file)[0]
+                })
+    
+    # Walk through getting started files
+    for root, dirs, files in os.walk(STARTED_PATH):
+        for file in files:
+            if file.endswith('.rst') or file.endswith('.md'):
+                rel_path = os.path.relpath(os.path.join(root, file), SPHINX_DOCS_PATH)
+                rel_path = rel_path.replace('\\', '/')
+                
+                # Get document title if possible
+                title = None
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                        if first_line.startswith('# '):
+                            title = first_line[2:].strip()
+                        elif first_line and all(c == '=' for c in (f.readline().strip() or '')):
+                            title = first_line
+                except:
+                    pass
+                
+                gettingstarted_docs.append({
+                    'path': rel_path,
+                    'title': title or os.path.splitext(file)[0]
+                })
+    
+    return jsonify({
+        'content': content_docs,
+        'gettingstarted': gettingstarted_docs
     })
 
 if __name__ == '__main__':
