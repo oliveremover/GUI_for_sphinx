@@ -174,9 +174,9 @@ def new():
         header_title = os.path.splitext(filename)[0].capitalize()
         f.write(f"# {header_title}\n\nEnter your content here.\n")
     
-    # Add the new file to the toctree
+    # Add the new file to the parent folder's toctree
     relative_path = os.path.relpath(filepath, SPHINX_DOCS_PATH).replace("\\", "/")
-    add_to_toctree(relative_path, section)
+    add_to_parent_toctree(relative_path, section, folder)
     
     return redirect(url_for('edit', filename=os.path.relpath(filepath, SPHINX_DOCS_PATH).replace("\\", "/")))
 
@@ -239,6 +239,107 @@ def add_to_toctree(relative_path, section):
     print("No matching toctree section found for", section)
     return False
 
+def add_to_parent_toctree(relative_path, section, parent_folder=''):
+    """Add a path to the index.rst in the parent folder if it exists, otherwise to root index.rst."""
+    print(f"Adding {relative_path} to parent_folder='{parent_folder}' in section='{section}'")
+    
+    # If no parent folder specified, use the root index.rst
+    if not parent_folder:
+        print("No parent_folder specified, using root index.rst")
+        return add_to_toctree(relative_path, section)
+    
+    # Always strip any leading and trailing slashes from parent_folder
+    parent_folder = parent_folder.strip('/')
+    
+    # First try the primary section path
+    if section == 'content':
+        primary_path = os.path.join(CONTENT_PATH, parent_folder)
+        secondary_path = os.path.join(STARTED_PATH, parent_folder)
+    else:
+        primary_path = os.path.join(STARTED_PATH, parent_folder)
+        secondary_path = os.path.join(CONTENT_PATH, parent_folder)
+    
+    # Try primary path first
+    parent_index_path = os.path.join(primary_path, 'index.rst')
+    print(f"Looking for parent index at: {parent_index_path}")
+    
+    # If primary doesn't exist, try secondary path
+    if not os.path.exists(parent_index_path):
+        parent_index_path = os.path.join(secondary_path, 'index.rst')
+        print(f"Primary path not found, trying secondary path: {parent_index_path}")
+        
+        # If still not found, use root index
+        if not os.path.exists(parent_index_path):
+            print(f"No index.rst found in any parent folder {parent_folder}, using root index.rst")
+            return add_to_toctree(relative_path, section)
+        else:
+            # Secondary path exists, adjust parent_path for later use
+            parent_path = secondary_path
+            # Also adjust section based on the working path
+            section = 'gettingstarted' if secondary_path.startswith(STARTED_PATH) else 'content'
+    else:
+        # Primary path exists
+        parent_path = primary_path
+    
+    # Determine parent folder's path and its index.rst
+    if section == 'content':
+        parent_path = os.path.join(CONTENT_PATH, parent_folder)
+    else:
+        parent_path = os.path.join(STARTED_PATH, parent_folder)
+    
+    parent_index_path = os.path.join(parent_path, 'index.rst')
+    print(f"Looking for parent index at: {parent_index_path}")
+    
+    # If parent doesn't have an index.rst, fall back to root index.rst
+    if not os.path.exists(parent_index_path):
+        print(f"No index.rst found in parent folder {parent_folder}, using root index.rst")
+        return add_to_toctree(relative_path, section)
+    
+    # Calculate relative path from parent folder to target file
+    if section == 'content':
+        base_path = CONTENT_PATH
+    else:
+        base_path = STARTED_PATH
+        
+    # Get the path relative to the parent folder
+    file_full_path = os.path.join(SPHINX_DOCS_PATH, relative_path)
+    rel_to_parent = os.path.relpath(file_full_path, parent_path).replace('\\', '/')
+    
+    print(f"Relative path from parent: {rel_to_parent}")
+    
+    # Add to the parent's index.rst
+    with open(parent_index_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    # Find the toctree directive
+    toctree_index = -1
+    for i, line in enumerate(lines):
+        if '.. toctree::' in line:
+            toctree_index = i
+            break
+    
+    if toctree_index == -1:
+        # No toctree found, add one
+        lines.append('\n.. toctree::\n   :maxdepth: 2\n   :caption: Contents:\n\n')
+        lines.append(f'   {rel_to_parent}\n')
+    else:
+        # Find where to insert (after directives like :maxdepth:, :caption:, etc.)
+        insert_index = toctree_index + 1
+        while insert_index < len(lines) and (
+            lines[insert_index].strip().startswith(':') or not lines[insert_index].strip()
+        ):
+            insert_index += 1
+        
+        # Insert our file with the proper relative path
+        lines.insert(insert_index, f'   {rel_to_parent}\n')
+    
+    # Write back to the parent's index.rst
+    with open(parent_index_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+    
+    print(f"Added {rel_to_parent} to {parent_index_path}")
+    return True
+
 def remove_from_toctree(relative_path, section):
     print(f"Removing {relative_path} from {section} toctree")
     
@@ -273,8 +374,82 @@ def remove_from_toctree(relative_path, section):
 def new_folder():
     foldername = request.form['foldername'].lower()
     parent_folder = request.form['parent_folder'].lower()
-    folderpath = os.path.join(CONTENT_PATH, parent_folder.strip('/'), foldername)
+    section = request.form.get('section', 'content').lower()
+    
+    # Set the section specific paths
+    if section == 'gettingstarted':
+        base_path = STARTED_PATH
+        section_index_path = os.path.join(STARTED_PATH, 'index.rst')
+    else:  # Default to content
+        base_path = CONTENT_PATH
+        section_index_path = os.path.join(CONTENT_PATH, 'index.rst')
+    
+    # If parent_folder is empty but we're creating a folder in a specific section,
+    # we should add it to that section's index.rst, not the root index.rst
+    if not parent_folder:
+        # Create the section's index.rst if it doesn't exist
+        if not os.path.exists(section_index_path):
+            os.makedirs(os.path.dirname(section_index_path), exist_ok=True)
+            with open(section_index_path, 'w', encoding='utf-8') as f:
+                title = section.replace('_', ' ').title()
+                underline = '=' * len(title)
+                f.write(f"""{title}
+{underline}
+
+Section index page.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+""")
+            
+        # Continue with folder creation
+        folderpath = os.path.join(base_path, foldername)
+    else:
+        # Regular case - parent folder specified
+        # Determine where to create the new folder
+        relative_parent = parent_folder.strip('/')
+        if relative_parent.startswith(section + '/'):
+            # Remove section prefix for filesystem path
+            relative_parent = relative_parent[len(section) + 1:]
+            
+        folderpath = os.path.join(base_path, relative_parent, foldername)
+    
+    # Create the folder
     os.makedirs(folderpath, exist_ok=True)
+    
+    # Create _static folder inside the new folder
+    static_folder = os.path.join(folderpath, "_static")
+    os.makedirs(static_folder, exist_ok=True)
+    print(f"Created _static folder at: {static_folder}")
+    
+    # Create index.rst file in the new folder
+    index_path = os.path.join(folderpath, "index.rst")
+    with open(index_path, 'w', encoding='utf-8') as f:
+        title = foldername.replace('_', ' ').title()
+        underline = '=' * len(title)
+        f.write(f"""{title}
+{underline}
+
+This is the main page for {title}.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+""")
+    
+    # Add the new index.rst to the parent's toctree
+    relative_path = os.path.relpath(index_path, SPHINX_DOCS_PATH).replace("\\", "/")
+    
+    if not parent_folder:
+        # For top-level folders without a parent, add to section's index.rst
+        parent_folder = section  # Use section name as parent folder
+    
+    # Use the adjusted parent_folder parameter
+    add_to_parent_toctree(relative_path, section, parent_folder)
+    
     return redirect(url_for('index'))
 
 @app.route('/delete/<path:filename>', methods=['POST'])
@@ -290,11 +465,163 @@ def delete(filename):
 
 @app.route('/delete_folder', methods=['POST'])
 def delete_folder():
-    folder = request.form['folder'].lower()
-    folderpath = os.path.join(CONTENT_PATH, folder.strip('/'))
+    folder = request.form['folder']  # Don't lowercase here to preserve case
+    section = request.form.get('section', 'content').lower()
+    
+    print(f"Attempting to delete folder: {folder} in section: {section}")
+    
+    # Auto-detect the section from the folder path if needed
+    if folder.lower().startswith('gettingstarted/') or folder.lower().startswith('gettingStarted/'):
+        section = 'gettingstarted'
+        print(f"Section auto-detected as '{section}' from folder path")
+    elif folder.lower().startswith('content/'):
+        section = 'content'
+        print(f"Section auto-detected as '{section}' from folder path")
+    
+    # Determine the correct base path
+    if section == 'gettingstarted':
+        base_path = STARTED_PATH
+    else:
+        base_path = CONTENT_PATH
+    
+    print(f"Base path: {base_path}")
+    
+    # Normalize folder path by removing leading/trailing slashes and section prefix
+    relative_folder = folder.strip('/')
+    
+    # Store original folder path for toctree removal
+    original_folder_path = relative_folder
+    
+    # Calculate parent folder path BEFORE any conditional logic
+    parent_folder_path = os.path.dirname(original_folder_path)
+    if not parent_folder_path:
+        parent_folder_path = section
+    
+    print(f"Parent folder path: {parent_folder_path}")
+    
+    # Check for various section prefix formats case-insensitively
+    possible_prefixes = [
+        f"{section}/",
+        "content/",
+        "gettingStarted/",  # With capital S
+        "gettingstarted/"   # All lowercase
+    ]
+    
+    for prefix in possible_prefixes:
+        if relative_folder.lower().startswith(prefix.lower()):
+            # Match found - remove this prefix
+            relative_folder = relative_folder[len(prefix):]
+            print(f"Removed prefix '{prefix}' from path")
+            break
+    
+    print(f"Relative folder path after prefix removal: {relative_folder}")
+    
+    # Create full path with proper OS separators
+    folderpath = os.path.join(base_path, relative_folder.replace('/', os.path.sep))
+    print(f"Looking for folder at: {folderpath}")
+    
+    # First try to remove from parent toctree BEFORE deleting the folder
+    index_path = os.path.join(folderpath, "index.rst")
+    if os.path.exists(index_path):
+        # Get the relative path for the index.rst
+        relative_index_path = os.path.relpath(index_path, SPHINX_DOCS_PATH).replace("\\", "/")
+        print(f"Preparing to remove {relative_index_path} from toctree")
+        
+        # Remove from parent toctree
+        remove_from_parent_toctree(relative_index_path, section, parent_folder_path)
+    
+    # Now delete the folder
     if os.path.exists(folderpath):
         shutil.rmtree(folderpath)
+        print(f"Deleted folder: {folderpath}")
+    else:
+        # Try the opposite section as a fallback
+        opposite_section = 'gettingstarted' if section == 'content' else 'content'
+        opposite_base_path = STARTED_PATH if section == 'content' else CONTENT_PATH
+        opposite_folderpath = os.path.join(opposite_base_path, relative_folder.replace('/', os.path.sep))
+        print(f"Trying opposite section path: {opposite_folderpath}")
+        
+        if os.path.exists(opposite_folderpath):
+            # Same toctree removal logic for opposite section
+            opposite_index_path = os.path.join(opposite_folderpath, "index.rst")
+            if os.path.exists(opposite_index_path):
+                opposite_relative_path = os.path.relpath(opposite_index_path, SPHINX_DOCS_PATH).replace("\\", "/")
+                remove_from_parent_toctree(opposite_relative_path, opposite_section, parent_folder_path)
+            
+            shutil.rmtree(opposite_folderpath)
+            print(f"Deleted folder from opposite section: {opposite_folderpath}")
+        else:
+            print(f"Folder not found in either section")
+            
     return redirect(url_for('index'))
+
+def remove_from_parent_toctree(relative_path, section, parent_folder=''):
+    """Remove a path from the parent folder's index.rst if it exists."""
+    print(f"Removing {relative_path} from parent_folder='{parent_folder}' in section='{section}'")
+    
+    # If no parent folder specified, use the root index.rst
+    if not parent_folder:
+        return remove_from_toctree(relative_path, section)
+    
+    # Determine parent folder's path and its index.rst
+    if section == 'content':
+        parent_path = os.path.join(CONTENT_PATH, parent_folder)
+    else:
+        parent_path = os.path.join(STARTED_PATH, parent_folder)
+    
+    parent_index_path = os.path.join(parent_path, 'index.rst')
+    
+    # If parent doesn't have an index.rst, fall back to root index.rst
+    if not os.path.exists(parent_index_path):
+        return remove_from_toctree(relative_path, section)
+    
+    # Calculate expected relative path as it would appear in the toctree
+    file_full_path = os.path.join(SPHINX_DOCS_PATH, relative_path)
+    rel_to_parent = os.path.relpath(file_full_path, parent_path).replace('\\', '/')
+    
+    print(f"Looking to remove entry that matches: {rel_to_parent}")
+    
+    # Read the parent's index.rst
+    with open(parent_index_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    found = False
+    new_lines = []
+    
+    for line in lines:
+        line_content = line.strip()
+        
+        # More specific matching: must match the exact relative path
+        # or just the filename in case the path is stored differently
+        if line_content == rel_to_parent or line_content == os.path.basename(rel_to_parent):
+            found = True
+            print(f"Found and removing: '{line_content}' from {parent_index_path}")
+            continue
+        new_lines.append(line)
+    
+    if not found:
+        print(f"Warning: Could not find '{rel_to_parent}' in {parent_index_path}")
+        # As a fallback, try with just the filename
+        basename = os.path.basename(relative_path)
+        print(f"Trying fallback with just basename: {basename}")
+        
+        new_lines = []
+        second_attempt = False
+        
+        for line in lines:
+            line_content = line.strip()
+            if line_content.endswith(basename) and not second_attempt:
+                found = True
+                second_attempt = True  # Only remove one entry
+                print(f"Fallback match - removing: '{line_content}'")
+                continue
+            new_lines.append(line)
+    
+    # Write back to the parent's index.rst
+    with open(parent_index_path, 'w', encoding='utf-8') as f:
+        f.writelines(new_lines)
+    
+    return True
 
 @app.route('/save_order', methods=['POST'])
 def save_order():

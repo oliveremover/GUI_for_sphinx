@@ -9,15 +9,15 @@
 <body>
     <div class="container">
         <h1>Documentation Files</h1>
+        {% for tree, caption, class in started_data %}
+        <h2>{{ caption or "Getting Started" }}</h2>
+        <div id="jstree-started-{{ loop.index }}" class="mt-3 {{ class or "" }}">
+            <!-- Tree view will be rendered here -->
+        </div>
+        {% endfor %}
         {% for tree, caption, class in content_data %}
             <h2>{{ caption or "Content" }}</h2>
             <div id="jstree-content-{{ loop.index }}" class="mt-3 {{ class or "" }}">
-                <!-- Tree view will be rendered here -->
-            </div>
-        {% endfor %}
-        {% for tree, caption, class in started_data %}
-            <h2>{{ caption or "Getting Started" }}</h2>
-            <div id="jstree-started-{{ loop.index }}" class="mt-3 {{ class or "" }}">
                 <!-- Tree view will be rendered here -->
             </div>
         {% endfor %}
@@ -92,6 +92,13 @@
                             <label for="parent-folder-select">Select Parent Folder</label>
                             <select name="parent_folder" id="parent-folder-select" class="form-control">
                                 <option value="">Select parent folder</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="folder-section">Section</label>
+                            <select id="folder-section" name="section" class="form-control">
+                                <option value="content">Content</option>
+                                <option value="gettingstarted">Getting Started</option>
                             </select>
                         </div>
                     </form>
