@@ -2,7 +2,7 @@
 
 ## About
 
-This is a simple web-based documentation management system designed specifically for creating and maintaining Sphinx-based documentation. It provides an intuitive interface for organizing, editing, and publishing structured documentation with minimal technical knowledge required.
+This is a simple web-based documentation management system designed specifically for creating and maintaining Sphinx-based documentation. It provides an intuitive interface for organizing, editing, and publishing structured documentation with minimal technical knowledge required. THe app requires that you have set up a Sphinx program and updated the path: SPHINX_DOCS_PATH = "". the Sphinx program also needs to have a folder set up called "gettingstarted" and one name "content". This can ofcourse be configured.
 
 ## Features
 
